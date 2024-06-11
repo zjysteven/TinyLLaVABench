@@ -197,10 +197,7 @@ class TinyLlavaForConditionalGeneration(TinyLlavaPreTrainedModel):
         kwargs['vision_feature_select_strategy'] = self.config.vision_feature_select_strategy
         images = images.to(device=self.device, dtype=self.dtype)
         image_features = self.vision_tower(images, **kwargs)
-        image_features = self.connector(image_features)
         return image_features
-    
-    
     
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None,
                                       inputs_embeds=None, **kwargs):
@@ -223,8 +220,7 @@ class TinyLlavaForConditionalGeneration(TinyLlavaPreTrainedModel):
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
 
-        
-        image_features = self.encode_images(images)
+        raw_image_features = self.encode_images(images)
 
         # TODO: image start / end is not implemented here to support pretraining.
         if getattr(self.config, 'tune_mm_mlp_adapter', False):
@@ -257,8 +253,10 @@ class TinyLlavaForConditionalGeneration(TinyLlavaPreTrainedModel):
         for batch_idx, cur_input_ids in enumerate(input_ids):
             num_images = (cur_input_ids == IMAGE_TOKEN_INDEX).sum()
             if num_images == 0:
-                cur_image_features = image_features[cur_image_idx]
                 cur_input_embeds_1 = self.language_model.get_input_embeddings()(cur_input_ids)
+                # cur_image_features = image_features[cur_image_idx]
+                # this isn't really used anyway; just to make the shapes match
+                cur_image_features = torch.zeros(1, *cur_input_embeds_1.shape[1:], device=cur_input_embeds_1.device, dtype=cur_input_embeds_1.dtype)
                 cur_input_embeds = torch.cat([cur_input_embeds_1, cur_image_features[0:0]], dim=0)
                 new_input_embeds.append(cur_input_embeds)
                 new_labels.append(labels[batch_idx])
@@ -275,8 +273,38 @@ class TinyLlavaForConditionalGeneration(TinyLlavaPreTrainedModel):
             split_sizes = [x.shape[0] for x in cur_labels_noim]
             cur_input_embeds = self.language_model.get_input_embeddings()(torch.cat(cur_input_ids_noim))
             cur_input_embeds_no_im = torch.split(cur_input_embeds, split_sizes, dim=0)
+            
             cur_new_input_embeds = []
             cur_new_labels = []
+
+            assert num_images + 1 == len(cur_input_embeds_no_im), \
+                f"num_images + 1: {num_images} + 1 != len(cur_input_embeds_no_im): {len(cur_input_embeds_no_im)}"
+            
+            if 'text_aware' in self.config.connector_type:
+                # to make this work for text_aware qformers
+                # we assume that each question starts with an <image> token
+                # this saves us from having to locate where the image tokens
+                # should be inserted among input_embeds
+
+                # but still we have to slice the question part from the input_embeds
+                # to feed to the connector
+                cur_input_embeds_no_im_only_question = []
+                for i in range(1, len(cur_input_embeds_no_im)): # doesn't work when num_images == 0
+                    temp_input_embeds = cur_input_embeds_no_im[i]
+                    temp_labels = cur_labels_noim[i]
+                    assert temp_input_embeds.shape[0] == temp_labels.shape[0]
+                    cur_input_embeds_no_im_only_question.append(
+                        temp_input_embeds[temp_labels == IGNORE_INDEX].clone()
+                    )
+
+                image_features = self.connector([
+                    raw_image_features[cur_image_idx].unsqueeze(0).expand(
+                        len(cur_input_embeds_no_im_only_question), -1, -1
+                    ),
+                    cur_input_embeds_no_im_only_question
+                ])
+            else:
+                image_features = self.connector(raw_image_features)
 
             for i in range(num_images + 1):
                 cur_new_input_embeds.append(cur_input_embeds_no_im[i])

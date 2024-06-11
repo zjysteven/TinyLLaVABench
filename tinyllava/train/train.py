@@ -1,5 +1,7 @@
+from dataclasses import dataclass, field, fields
 from packaging import version
 import pathlib
+import draccus
 
 import tokenizers
 import transformers
@@ -46,14 +48,29 @@ def _load_connector_settings(model_arguments):
     return connector_args
 
 
+@dataclass
+class AllArguments(TrainingArguments):
+    model: ModelArguments = field(default_factory=ModelArguments)
+    data: DataArguments = field(default_factory=DataArguments)
+
+
 def train():
     
     # load argument
-    parser = transformers.HfArgumentParser(
-        (ModelArguments, DataArguments, TrainingArguments))
-    model_arguments, data_arguments, training_arguments = parser.parse_args_into_dataclasses()
+    # parser = transformers.HfArgumentParser(
+    #     (ModelArguments, DataArguments, TrainingArguments))
+    # model_arguments, data_arguments, training_arguments = parser.parse_args_into_dataclasses()
+    all_arguments = draccus.parse(config_class=AllArguments)
+    model_arguments, data_arguments = all_arguments.model, all_arguments.data
+    training_arguments = TrainingArguments(output_dir=None)
+    for field in fields(TrainingArguments):
+        setattr(training_arguments, field.name, getattr(all_arguments, field.name))
     
-    logger_setting(getattr(training_arguments, 'output_dir', None))
+    output_dir = getattr(training_arguments, 'output_dir', None)
+    assert output_dir is not None, "output_dir is required"
+    logger_setting(output_dir)
+    draccus.dump(all_arguments, open(f"{output_dir}/config.yml", "w"))
+    draccus.dump(training_arguments, open(f"{output_dir}/config_training.yml", "w"))
 
     training_recipe = TrainingRecipeFactory(training_arguments.training_recipe)(training_arguments) 
     # model_args contain arguements for huggingface model .from_pretrained function

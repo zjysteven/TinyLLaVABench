@@ -43,6 +43,7 @@ warmup_ratio: 0.03
 lr_scheduler_type: cosine
 logging_steps: 1
 fp16: True
+bf16: False
 tf32: false
 gradient_checkpointing: true
 dataloader_num_workers: 8

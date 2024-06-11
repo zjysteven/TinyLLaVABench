@@ -70,7 +70,7 @@ class TinyLlavaConfig(PretrainedConfig):
         self._load_vision_config(vision_config)
             
         super().__init__(**kwargs)
-    
+
     def load_from_config(self, config):
         self.llm_model_name_or_path = getattr(config, 'model_name_or_path',  '')
         self.tokenizer_name_or_path = getattr(config, 'tokenizer_name_or_path', None) or self.llm_model_name_or_path
@@ -80,9 +80,13 @@ class TinyLlavaConfig(PretrainedConfig):
         self.vision_feature_layer = getattr(config, 'mm_vision_select_layer',  -2)
         self.vision_feature_select_strategy = getattr(config, 'mm_vision_select_feature',  "patch")
         self.image_aspect_ratio = getattr(config, 'image_aspect_ratio',  "pad")
+
+        # connector-related
         self.resampler_hidden_size = getattr(config, 'resampler_hidden_size',  None)
         self.num_queries = getattr(config, 'num_queries',  None)
         self.num_resampler_layers = getattr(config, 'num_resampler_layers',  None)
+        self.qformer_initialized_model = getattr(config, 'qformer_initialized_model',  None)
+        self.qformer_cross_attention_freq = getattr(config, 'qformer_cross_attention_freq',  2)
         
         self.cache_dir = getattr(config, 'cache_dir', None)
         self.tokenizer_use_fast = getattr(config, 'tokenizer_use_fast', False)
@@ -91,8 +95,7 @@ class TinyLlavaConfig(PretrainedConfig):
         
         self._load_text_config()
         self._load_vision_config()
-      
-    
+
     def _load_text_config(self, text_config=None):
         if self.llm_model_name_or_path is None or self.llm_model_name_or_path == '':
             self.text_config = CONFIG_MAPPING['llama']()
@@ -106,7 +109,7 @@ class TinyLlavaConfig(PretrainedConfig):
         self.vocab_size = getattr(self.text_config, 'vocab_size',  None)
     
     
-    
+
     def _load_vision_config(self, vision_config=None):
         if self.vision_model_name_or_path is None or self.vision_model_name_or_path == '':
             self.vision_config = CONFIG_MAPPING['clip_vision_model'](
@@ -129,5 +132,3 @@ class TinyLlavaConfig(PretrainedConfig):
         self.vision_config.model_name_or_path = self.vision_model_name_or_path.split(':')[-1]
         self.vision_config.model_name_or_path2 = self.vision_model_name_or_path2.split(':')[-1]
         self.vision_hidden_size = getattr(self.vision_config, 'hidden_size',  None)  
-        
-
